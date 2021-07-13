@@ -56,7 +56,7 @@ ReadOnlySpace* read_only_space_ = nullptr;
 +----------------------- -----------------------------------------------------------+
 |   Young Generation                  Old Generation          Large Object space    |
 |  +-------------+--------------+  +-----------+-------------+ +------------------+ |
-|  |        NEW_SPACE           |  | MAP_SPACE | OLD_SPACE   | | LO_SPACE         | |
+|  |        NEW_SPACE           |  | MAP_SPACE | OLD_SPACE   | | OLD_LO_SPACE     | |
 |  +-------------+--------------+  +-----------+-------------+ +------------------+ |
 |  |  from_Space   | to_Space   |                                                   |
 |  +-------------+--------------+                                                   |
@@ -74,7 +74,7 @@ ReadOnlySpace* read_only_space_ = nullptr;
 可以看到v8的堆内存由新生代和老生代以及大对象空间组成。
 v8将堆内存划分为固定大小的块，叫做**Page**（页面），大小为256kb。新生代中两个semispaces中内存是连续的，老生代中 Page 是分散的，以链表的形式串联起来。一个 Page 由一个 page header和object area组成。
 ##### 新生代
-**New_Space**被分为两个大小一样的空间（**semispaces**）。
+**New_Space**被分为两个大小一样的空间（**semispaces**），在32位系统下一个 semispaces 的大小为8M，64位系统下 semispaces 大小为 16M。两个 semispaces 我们称之为 From 空间和 To 空间，在下文垃圾回收部分会讲到，这里不做过多赘述。
 ##### 老生代
 老生代分为 **Map Space**和**Old_Space**。Map_Space 包含所有对象的map(对象的布局结构信息,这里和对象隐藏属性有关)，其余对象存储到 OLD_SPACE。
 
