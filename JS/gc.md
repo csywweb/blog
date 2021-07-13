@@ -118,13 +118,60 @@ V8 将堆划分为空间，空间划分为页。这些内存页里的内存是�
 
 讲完了内存分配，让我们来看看垃圾回收的整个过程。
 
-一个垃圾回收器通常都会实现的基本功能：(除去V8，其他也是这么做的，例如golang)
+一个垃圾回收器通常都会实现的基本功能， 也叫做Mark-Sweep-Compact：(除去V8，其他也是这么做的，例如golang)
 * 识别活/死的对象
 * 回收/重用死对象占用的内存
 * 压缩/碎片，整理内存（可选）
 
 这些任务可以顺序执行，也可以额交错执行。一种直接的方法是暂停 Javascript的执行，对全堆进行处理（这种停止javascript执行的操作称之为`全停顿（stop-the-world）`）。如果对整个堆都进行这些任务，那可能需要很久 200ms? 或者更多。这可能会导致主线程出现卡顿和延迟问题，让我们一起看下 V8 是如何做优化的。
 
+![过程](https://raw.githubusercontent.com/csywweb/blog/master/img/gc-main-thread.png)
 ### 世代假说
+
+世代假说（generational hypothesis），也称为弱分代假说（weak generational hypothesis）。这个假说表明，大多数新生的对象在分配之后就会死亡（“用后即焚”），而老的对象通常倾向于永生。换句话说，从 GC 的角度来看，大多数对象都已分配，然后几乎立即变得无法访问。这不仅适用于 V8 或 JavaScript，也适用于大多数动态语言。
+
+所以 V8 把垃圾回收分为了新生代和老生代，分别做了不同的处理。
+新生代包括了 NEW_SPACE, 老生代包括了 OLD_SPACE、CODE_SPACE、OLD_LO_SPACE、OLCODE_LO_SPACE 
+
+//原谅我蹩脚的翻译
+NEW_SPACE又被分为了两部分，‘nursery（幼儿生）’ and ‘intermediate（小学生）’ 。
+对象第一次被分配到 nursery （大对象会被分配到 newLargeSpace），如果他们在下一次 GC 中幸存下来。会继续留在年轻代中，被认为是 intermediate, 如果在下下次他们又活下来了。就会被移动到老生代中去。
+对于LargeObject会做不一样的处理，第一次会在NEW_LO_SPACE 中存活，两次GC后他还在，就移动到 OLD_LO_SPACE 中去。
+
+![](https://raw.githubusercontent.com/csywweb/blog/0740b2e8cff5bb4211158110db36a1fd57541b95/img/generation.svg)
+
+分代堆利用了对象生命周期进行 压缩/移动。这似乎造成了一种感觉：“在GC时复制对象开销很大"。但是根据分代假设，只有很小一部分在垃圾回收中幸存下来。我们只需要付出幸存对象数量成正比的成本，不是分配数量。
+### 垃圾回收器
+
+V8 中有两个垃圾回收器。Marjor GC(Mark-Compact) 主要负责全堆的回收。Minor GC(Scavenger) 负责新生代的回收。
+
+### Scavenger
+新生代的垃圾回收方法为 **Scavenger**，幸存的对象总是被移动到一个新的页面。V8采用了一种以空间换时间的垃圾回收算法。基本思路就是将内存分成两半，任一时刻只有一半（semispace）被使用，在清扫期间，这个最初为空的区域称为“To-Space”。我们从中复制的区域称为“From-Space”。在最坏的情况下，每个对象都可以幸存下来，我们需要复制每个对象。
+
+当程序需要创建新对象，而 New Space 的空间不够用时，Scavenge 就会启动，找到所有存活（可达）的对象移动到一个连续的内存块上去（TO_SPACE）。然后我们在两个空间上进行切换，即TO-SPACE 变成了 FROM-SPACE, FORM-SPACE 变成了 TO-SPACE。
+还有一种情况是会在从 FORM-SPACE 到 TO-SPACE之前会判断TO-SPACE 的大小是否超过了25%，超过就直接晋升到老生代。这么做的原因是如果占比过大，GC完成之后，新分配的对象可能塞不进 FROM-SPACE。
+当然了，对象晋升到OLD_SPACE时会判断OLD_SPACE的空间是否够用，如果够用才会晋升。
+一但GC完成，新分配的对象就会发生在 From-Space 中的下一个空闲地址。
+
+![](https://raw.githubusercontent.com/csywweb/blog/551fa72f556e92d70fea020f579d6d4108ab578f/img/from-to.svg)
+
+那么在第二次 GC 中，之前已经存活的对象会被移动到 OLD_SPACE。
+清理的最后一步是更新引用已移动的原始对象的指针。每个复制的对象都会留下一个转发地址，用于更新原始指针以指向新位置。
+
+![](https://raw.githubusercontent.com/csywweb/blog/31af8bf228f459ac6cf49a591b1f1076cb4ad86c/img/from-to.svg)
+
+在 Scavenger 的过程中，主要做了三件事
+* 标记
+* 移动
+* 指针更新
+
+新生代 Scavenger 的持续时间取决于新生代中的对象大小。当大多数对象不可达时，Scavenger 会很快（<1毫秒）。虽然 Scavenger 是 stop-the-world ，然而并不会影响很多性能。但是，如果大多数对象在 Scavenger 后存活下来，则 Scavenger 持续的时间会变得更长。
+
+基于以上这点，V8 针对 Scavenger 做了很多优化。可以点击[这里](https://v8.dev/blog/orinoco-parallel-scavenger)查看。
+
+### 老生代 Mark-Sweep-Compact
+
+
+
 
 
