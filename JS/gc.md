@@ -74,17 +74,57 @@ ReadOnlySpace* read_only_space_ = nullptr;
 可以看到v8的堆内存由新生代和老生代以及大对象空间组成。
 v8将堆内存划分为固定大小的块，叫做**Page**（页面），大小为256kb。新生代中两个semispaces中内存是连续的，老生代中 Page 是分散的，以链表的形式串联起来。一个 Page 由一个 page header和object area组成。
 ##### 新生代
-**New_Space**被分为两个大小一样的空间（**semispaces**），在32位系统下一个 semispaces 的大小为8M，64位系统下 semispaces 大小为 16M。两个 semispaces 我们称之为 From 空间和 To 空间，在下文垃圾回收部分会讲到，这里不做过多赘述。
+新生代包括**New_Space**，**NEW_LO_SPACE**， **RO_SPACE**。
+
+* 其中**New_Space**被分为两个大小一样的空间（**semispaces**），在32位系统下一个 semispaces 的大小为8M，64位系统下 semispaces 大小为 16M。两个 semispaces 我们称之为 From 空间和 To 空间，在下文垃圾回收部分会讲到，这里不做过多赘述。
+
+* **NEW_LO_SPACE** 的大小等于一个 semispaces 的大小。保存的是新生代的大对象。在新生代执行 **Scavenge** 算法的时候，也会对 NEW_LO_SPACE 中的对象处理，移动到 OLD_LO_SPACE.
+  ```c++
+  void ScavengerCollector::HandleSurvivingNewLargeObjects() {
+  for (SurvivingNewLargeObjectMapEntry update_info :
+       surviving_new_large_objects_) {
+        HeapObject object = update_info.first;
+        Map map = update_info.second;
+        // Order is important here. We have to re-install the map to have access
+        // to meta-data like size during page promotion.
+        object.set_map_word(MapWord::FromMap(map), kRelaxedStore);
+        LargePage* page = LargePage::FromHeapObject(object);
+        heap_->lo_space()->PromoteNewLargeObject(page);
+    }
+    surviving_new_large_objects_.clear();
+    }
+  ```
+* **Read Only Space** 保存不可变对象和不可移动的对象。TODO 具体做什么的，很抱歉这部分我也没看懂。
+
 ##### 老生代
-老生代分为 **Map Space**和**Old_Space**。Map_Space 包含所有对象的map(对象的布局结构信息,这里和对象隐藏属性有关)，其余对象存储到 OLD_SPACE。
+老生代分为 **Map Space**、**Old_Space**、**CODE_SPACE**。
+* Map_Space 包含所有对象的map(对象的布局结构信息,这里和对象隐藏属性有关)。
+* 其余非Large对象存储到 OLD_SPACE
+* Code Space 保存V8编译出来的代码
 
 ##### Large Object Space
-Large Object Space会单独分配一个大于 **kMaxRegularHeapObjectSize**（256kb） 的空间，以便于在垃圾回收期间不会移动。大对象空间中的 Page 通常大于 256kb。
+Large Object Space会单独分配一个大于 **kMaxRegularHeapObjectSize**（256kb） 的空间，以便于在垃圾回收期间不会移动。大对象空间中的 Page 通常大于 256kb。V8判断一个对象是否是 Large Object space通常是判断对象的大小是否大于 二分之一的 kMaxRegularHeapObjectSize。
 
-##### Code Space
+### 堆内存管理
 
-编译出来的代码在 Code Space 分配
+V8 将堆划分为空间，空间划分为页。这些内存页里的内存是怎么来的呢？V8 为此抽象出了 Memory Allocator，专门用于与操作系统交互，当空间需要新的页的时候，它从操作系统手上分配（使用mmap）内存再交给空间，而当有内存页不再使用的时侯，它从空间手上接过这些内存，还给操作系统（使用munmap）。因此堆上的内存都要经过 Memory Allocator 的手，在垃圾回收日志中也能看到它经手过的内存的使用情况。
+### 堆外内存
 
-##### Read Only Space
+除了堆上的内存以外，V8 还允许用户自行管理对象的内存，比如 Node.js 中的 Buffer 就是自己管理内存的。这些叫做外部内存（external memory），在垃圾回收的时候会被 V8 跳过，但是外部的代码可以通过向 V8 注册 GC 回调，跟随 JS 代码中暴露的引用的回收而自行回收内存，相关信息也会显示在垃圾回收日志中。外部内存也会影响 V8 的 GC，比如当外部内存占用过大时，V8 可能会选择 Full GC（包含老生代）而不是仅仅回收新生代，尝试触发用户的 GC 回调以空出更多的内存来使用。
 
-todo 很抱歉这部分我也没看懂。似乎和隐藏类也有着些许联系。
+由于外部代码需要将自己使用的内存通过 Isolate::AdjustAmountOfExternalAllocatedMemory 告知 V8 才能记录下来，假如外部代码没有做好上报，就可能出现进程 RSS（Resident Set Size，实际占用的内存大小）很高，但减去垃圾回收日志中 Memory Allocator 分配的堆内存和 V8 记录下的外部内存之后，有很大一部分“神秘消失”的现象，这个时候就可以定位到 C++ addon 或者是 Node.js 自己管理的内存里去排查问题了。
+
+## 垃圾回收
+
+讲完了内存分配，让我们来看看垃圾回收的整个过程。
+
+一个垃圾回收器通常都会实现的基本功能：(除去V8，其他也是这么做的，例如golang)
+* 识别活/死的对象
+* 回收/重用死对象占用的内存
+* 压缩/碎片，整理内存（可选）
+
+这些任务可以顺序执行，也可以额交错执行。一种直接的方法是暂停 Javascript的执行，对全堆进行处理（这种停止javascript执行的操作称之为`全停顿（stop-the-world）`）。如果对整个堆都进行这些任务，那可能需要很久 200ms? 或者更多。这可能会导致主线程出现卡顿和延迟问题，让我们一起看下 V8 是如何做优化的。
+
+### 世代假说
+
+
