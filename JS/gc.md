@@ -167,11 +167,16 @@ V8 中有两个垃圾回收器。Marjor GC(Mark-Compact) 主要负责全堆的�
 
 新生代 Scavenger 的持续时间取决于新生代中的对象大小。当大多数对象不可达时，Scavenger 会很快（<1毫秒）。虽然 Scavenger 是 stop-the-world ，然而并不会影响很多性能。但是，如果大多数对象在 Scavenger 后存活下来，则 Scavenger 持续的时间会变得更长。
 
-基于以上这点，V8 针对 Scavenger 做了很多优化。可以点击[这里](https://v8.dev/blog/orinoco-parallel-scavenger)查看。
+基于以上这点，V8 针对 Scavenger 做了一些优化。可以点击[这里（并行Scavenger）](https://v8.dev/blog/orinoco-parallel-scavenger)查看。
 
 ### 老生代 Mark-Sweep-Compact
 
+#### Marking 标记
 
+垃圾回收第一个重要部分是找到哪些对象可以被回收。GC 通过`可达性`来表示对象是否要被回收。这意味着当前运行时可达的对象需要保留。不可达的对象需要被回收。
 
+Marking 是找到可达对象的过程。GC 从一组已知的对象指针开始，称为根集(root)。这包括执行堆栈和全局对象。然后它跟随每个指向 JavaScript 对象的指针，并将该对象标记为可达。GC 跟踪该对象中的每个指针，并递归地继续此过程，直到找到并标记运行时中可到达的每个对象。在标记结束时，应用程序无法访问堆中未被标记的对象，并且可以安全的回收。
 
+##### 标记的过程
 
+我们可以将标记视为图遍历。堆上的对象是图的节点。从一个对象到另一个对象的指针是图的边。给定图中的一个节点，我们可以使用对象的[隐藏类](https://v8.dev/blog/fast-properties)找到该节点的所有出边。
