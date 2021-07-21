@@ -1,0 +1,23 @@
+{
+  "name": "blog",
+  "version": "1.0.0",
+  "description": "个人随笔，博客",
+  "main": "index.js",
+  "dependencies": {
+    "regenerator-transform": "^0.14.5"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/csywweb/blog.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/csywweb/blog/issues"
+  },
+  "homepage": "https://github.com/csywweb/blog#readme"
+}
