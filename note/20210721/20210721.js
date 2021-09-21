@@ -19,52 +19,52 @@
  * output: 2,3,1,4
  */
 
+// class Scheduler {
+//     constructor(max = 2) {
+//         this.MAX_LENGTH = 2;
+//         this.tasks = [];
+//         this.pool = [];
+//     }
+//     add(promiseCreator) {
+//         this.tasks.push(promiseCreator);
+//         return this.run();
+
+//     }
+//     run() {
+//         console.log('---')
+//         // 有任务 池子也够用
+//         if(this.pool.length < this.MAX_LENGTH && this.tasks.length > 0 ) {
+//             const task = this.tasks.shift();
+//             const p = task().then(() => {
+//                 // 执行完从pool里删了
+//                 this.pool.splice(this.pool.indexOf(p), 1);
+//                 console.timeLog('start');
+//             })
+//             this.pool.push(p);
+//             return p;
+//         } else {
+//             console.log("===")
+//             return Promise.race(this.pool).then(() =>this.run());
+//         }
+//     }
+// }
+
+// const scheduler = new Scheduler();
+// const timeout = (t) => new Promise(r => setTimeout(r, t));
+// const addtasks = (time, order) => {
+//   scheduler.add(() => timeout(time)).then(() => console.log("order:", order))
+// }
+
+// console.time('start');
+// addtasks(1000, '1')
+// addtasks(500, '2')
+// addtasks(300, '3')
+// addtasks(400, '4')
+
+
 class Scheduler {
-    constructor(max = 2) {
-        this.MAX_LENGTH = 2;
-        this.tasks = [];
-        this.pool = [];
-    }
-    add(promiseCreator) {
-        this.tasks.push(promiseCreator);
-        return this.run();
-
-    }
-    run() {
-        console.log('---')
-        // 有任务 池子也够用
-        if(this.pool.length < this.MAX_LENGTH && this.tasks.length > 0 ) {
-            const task = this.tasks.shift();
-            const p = task().then(() => {
-                // 执行完从pool里删了
-                this.pool.splice(this.pool.indexOf(p), 1);
-                console.timeLog('start');
-            })
-            this.pool.push(p);
-            return p;
-        } else {
-            console.log("===")
-            return Promise.race(this.pool).then(() =>this.run());
-        }
-    }
-}
-
-const scheduler = new Scheduler();
-const timeout = (t) => new Promise(r => setTimeout(r, t));
-const addtasks = (time, order) => {
-  scheduler.add(() => timeout(time)).then(() => console.log("order:", order))
-}
-
-console.time('start');
-addtasks(1000, '1')
-addtasks(500, '2')
-addtasks(300, '3')
-addtasks(400, '4')
-
-
-class Scheduler {
-    constructor(max = 2) {
-        this.MAX_LENGTH = 2;
+    constructor(max = 1) {
+        this.MAX_LENGTH = 1;
         this.count = 0;
         this.waitList = [];
     }
@@ -74,6 +74,7 @@ class Scheduler {
             await new Promise(r => this.waitList.push(r));
         }
 
+        console.log(213);
         this.count++;
         const result = await promiseCreator();
         this.count--;
@@ -88,8 +89,8 @@ class Scheduler {
 
 const scheduler = new Scheduler();
 const timeout = (t) => new Promise(r => setTimeout(r, t));
-const addtasks = (time, order) => {
-  scheduler.add(() => timeout(time)).then(() => console.log("order:", order))
+const addtasks = (t, order) => {
+  scheduler.add(() => new Promise(r => {console.log(1);setTimeout(r, t)})).then(() => console.log("order:", order))
 }
 console.time();
 addtasks(1000, '1')
